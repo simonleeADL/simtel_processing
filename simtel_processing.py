@@ -111,7 +111,7 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
 
     # I don't like warnings
 
-    warnings.filterwarnings("ignore")
+    #warnings.filterwarnings("ignore")
 
     # Cleaning levels taken from github.com/tudo-astroparticlephysics/cta_preprocessing
 
@@ -133,6 +133,7 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
     stereo = False
     checked_stereo = False
     secondsleft = 0.0
+    nothingprocessed = True
     
     # If telescopes are being specified, check if it's mono or stereo
 
@@ -141,13 +142,11 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
         if len(telescopes) > 1:
             stereo = True
     
-    calib = CameraCalibrator()
     horizon_frame = AltAz()
     reco = HillasReconstructor()
 
     for typename in types:
         
-
         # Setting up containers for the extra data that isn't generated in the DL1s by default
 
         telescope_extras = []
@@ -202,6 +201,8 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                 try:
                     for event in source:
 
+                        calib = CameraCalibrator(event.inst.subarray)
+
                         # Skip file if it's not at the given altitude
 
                         if site_altitude != None:
@@ -244,13 +245,13 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                             # Cleaning, then saving Hillas paramaters, and skipping inadequate events
 
                             tel = event.inst.subarray.tels[tel_id]
-                            camera = tel.camera
+                            geom = tel.camera.geometry
                             image = dl1.image / 0.15552960672840146
                             pulse_time = dl1.pulse_time
 
-                            boundary, picture, min_neighbors = cleaning_level[camera.cam_id]
+                            boundary, picture, min_neighbors = cleaning_level[tel.camera.camera_name]
                             
-                            clean = obtain_cleaning_mask(camera, image, pulse_time)
+                            clean = obtain_cleaning_mask(geom, image, pulse_time)
 
                             #clean = tailcuts_clean(camera, image, boundary_thresh=boundary, picture_thresh=picture, min_number_picture_neighbors=min_neighbors)   
 
@@ -260,15 +261,15 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                             if stereo and clean.sum() < 5:
                                 continue
 
-                            hillas_c = hillas_parameters(camera[clean], image[clean])                    
+                            hillas_c = hillas_parameters(geom[clean], image[clean])                    
 
                             if hillas_c.width == 0 or np.isnan(hillas_c.width.value):
                                 continue
 
                             # Get leakage and islands
 
-                            leakage_c = leakage(camera, image, clean)
-                            n_islands, island_ids = number_of_islands(camera, clean)
+                            leakage_c = leakage(geom, image, clean)
+                            n_islands, island_ids = number_of_islands(geom, clean)
 
                             event_tels.append(tel.type)
 
@@ -286,7 +287,7 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                             tgrad = np.nan
 
                             try:
-                                timing_c = timing_parameters(camera, image, pulse_time, hillas_c, clean)
+                                timing_c = timing_parameters(geom, image, pulse_time, hillas_c, clean)
                                 tgrad = timing_c.slope.value
                             except:
                                 print("Timing parameters didn't work. clean.sum() = " + str(clean.sum()),"\n")
@@ -300,7 +301,7 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                                 'telescope_event_id': tel_id,
                                 'nislands': n_islands,
                                 'telescope_type': tel.type,
-                                'camera_type' : camera.cam_id,
+                                'camera_type' : tel.camera.camera_name,
                                 'focal_length': tel.optics.equivalent_focal_length.value,
                                 'mc_impact_distance': mc_impact_distance,
                                 'n_survived_pixels': clean.sum(),
@@ -309,6 +310,8 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
 
                             writer.write("telescope_events", hillas_c)
                             writer.write("leakage", leakage_c)
+                            if nothingprocessed:
+                                nothingprocessed = False
 
                             # Doing geometric stereo reconstruction
 
@@ -387,7 +390,7 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                             'num_triggered_sst': event_tels.count('SST')})
                             
                         array_extras.append(dict_temp)
-                except:
+                except Exception as e: #except:
                     print("Error: Something unanticipated went wrong with processing an event in file ",filename)
                     print(traceback.format_exc(),"\n")
                     continue
@@ -450,6 +453,11 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
                 secondsleft = round((((end - start)/file_no)*(files_to_process-file_no)),2)
         
         sys.stdout.write('\n')
+
+        if nothingprocessed:
+            print("Nothing was succesfuly processed for",typename)
+            break
+
         print('Writing ' + typename + " file")
 
         # Read tables from processing file
@@ -552,8 +560,7 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
 
         os.remove(process_temp)
 
-    print('Done!')
+    print('Finished')
 
 if __name__ == '__main__':
     main()
-
