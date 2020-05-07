@@ -28,8 +28,10 @@ def main(input_path,output_path,max_files,max_events,site_altitude,source_type,t
             
     processor.process(input_path,output_path,max_files,
     max_events,site_altitude,
-    types,telescopes,
+    source_type,telescopes,
     site_location,chop,id_no)
+    
+    print("Wow we actually made it, cool")
    
 def process_inputs(input_path,output_path,source_type, location, chop):
 
