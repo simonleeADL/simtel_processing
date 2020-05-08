@@ -32,6 +32,8 @@ def process(
             print(
             typename, "did not have any events output (maybe too low-energy?)")
             continue
+        
+        site_location.append(runs_all[0]['prod_site_alt'])
 
         writer.write(
             typename,
