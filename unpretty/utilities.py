@@ -4,15 +4,14 @@ import astropy.units as u
 from astropy.coordinates import SkyCoord, AltAz
 from ctapipe.io import event_source
 from ctapipe.calib import CameraCalibrator
-from ctapipe.image.cleaning import number_of_islands, apply_time_delta_cleaning
-from ctapipe.image import hillas_parameters, leakage
+from ctapipe.image.cleaning import tailcuts_clean, number_of_islands, apply_time_delta_cleaning
+from ctapipe.image import hillas_parameters, leakage, concentration
 from ctapipe.image.timing_parameters import timing_parameters
 from ctapipe.reco import HillasReconstructor
+#from ctapipe import utils
 from datetime import datetime
 import glob
 import traceback
-import os
-
 
 def obtain_cleaning_mask(geom, image, time):
 
@@ -31,15 +30,15 @@ def obtain_cleaning_mask(geom, image, time):
         pixels_above_picture.view(np.byte))
     pixels_in_picture = pixels_above_picture & (
         number_of_neighbors_above_picture >= min_number_picture_neighbors
-    )
+        )
 
     # Select all boundary pixels (including picture pixels)
     pixels_above_boundary = image >= boundary_thresh
 
     # Remove boundary pixels not arrived in a given time frame
     pixels_to_keep = apply_time_delta_cleaning(
-        geom, pixels_above_boundary, time, min_number_neighbors, time_limit
-    ).astype(np.bool)
+         geom, pixels_above_boundary, time, min_number_neighbors, time_limit
+         ).astype(np.bool)
     pixels_with_picture_neighbors = geom.neighbor_matrix_sparse.dot(
         pixels_in_picture)
     mask = pixels_with_picture_neighbors & pixels_to_keep
@@ -51,32 +50,51 @@ def obtain_cleaning_mask(geom, image, time):
 
     return mask
 
+def process_telescope(tel_id,dl1,event,telescopes,subarray,stereo):
+    
+    # Skipping if this telescope isn't one that's been asked for
+    
+    if telescopes != None:
+        if (tel_id not in telescopes):
+            return
 
-def process_telescope(tel, dl1, stereo):
+    # Cleaning, then saving Hillas paramaters, and skipping inadequate events
 
+    tel = subarray.tels[tel_id]
     geom = tel.camera.geometry
     image = dl1.image / 0.15552960672840146
     peak_time = dl1.peak_time
+    
+    clean = obtain_cleaning_mask(geom, image, peak_time) 
 
-    # Cleaning using CHEC method
-    clean = obtain_cleaning_mask(geom, image, peak_time)
-
-    # Skipping inadequate events
     if clean.sum() == 0:
-        return None, None, None
+        return
 
     if stereo and clean.sum() < 5:
-        return None, None, None
+        return
 
-    # Get hillas parameters
-    hillas_c = hillas_parameters(geom[clean], image[clean])
+    hillas_c = hillas_parameters(geom[clean], image[clean])                    
 
     if hillas_c.width == 0 or np.isnan(hillas_c.width.value):
-        return None, None, None
+        return
 
     # Get leakage and islands
+
     leakage_c = leakage(geom, image, clean)
     n_islands, island_ids = number_of_islands(geom, clean)
+    
+    global event_tels
+    event_tels.append(tel.type)
+
+    # Calculating mc impact distance
+
+    x1 = event.mc.core_x.value
+    y1 = event.mc.core_y.value
+    x2 = subarray.positions[tel_id][0].value
+    y2 = subarray.positions[tel_id][1].value
+
+    v = [x2-x1,y2-y1]
+    mc_impact_distance = np.linalg.norm(v)
 
     # Get time gradient
     tgrad = np.nan
@@ -84,19 +102,24 @@ def process_telescope(tel, dl1, stereo):
     try:
         timing_c = timing_parameters(geom, image, peak_time, hillas_c, clean)
         tgrad = timing_c.slope.value
-    except BaseException:
-        print("Timing parameters didn't work. clean.sum() = " +
-              str(clean.sum()), "\n")
+    except:
+        print("Timing parameters didn't work. clean.sum() = " + str(clean.sum()),"\n")
+    
+    # Saving extra info for telescope_events
 
-    # Grab info for telescope_events
-    tel_data = {
+    dict_temp = {
+        'array_event_id': event.index.event_id,
+        'run_id': event.index.obs_id,
+        'telescope_id': tel_id,
+        'telescope_event_id': tel_id,
         'nislands': n_islands,
         'telescope_type': tel.type,
-        'camera_type': tel.camera.camera_name,
+        'camera_type' : tel.camera.camera_name,
         'focal_length': tel.optics.equivalent_focal_length.value,
+        'mc_impact_distance': mc_impact_distance,
         'n_survived_pixels': clean.sum(),
         'tgradient': tgrad,
-
+        
         'x': hillas_c.x.value,
         'y': hillas_c.y.value,
         'r': hillas_c.r.value,
@@ -107,102 +130,84 @@ def process_telescope(tel, dl1, stereo):
         'psi': hillas_c.psi.value,
         'skewness': hillas_c.skewness,
         'kurtosis': hillas_c.kurtosis,
-
+        
         'pixels_width_1': leakage_c.pixels_width_1,
         'pixels_width_2': leakage_c.pixels_width_2,
         'intensity_width_1': leakage_c.intensity_width_1,
         'intensity_width_2': leakage_c.intensity_width_2}
+    
+    global telescope_extras
+    telescope_extras.append(dict_temp)
 
-    return tel.type, tel_data, hillas_c
-
-
-def process_event(
-        event,
-        telescopes,
-        subarray,
-        stereo,
-        telescope_events_data,
-        calib):
-
+    # Doing geometric stereo reconstruction
+    
+    global hillas_containers, telescope_pointings
+    
     if stereo:
-        hillas_containers = {}
-        telescope_pointings = {}
+        hillas_containers[tel_id] = hillas_c
 
+        telescope_pointings[tel_id] = SkyCoord(
+            alt=event.mc.tel[tel_id].altitude_raw * u.rad,
+            az=event.mc.tel[tel_id].azimuth_raw * u.rad,
+            frame=horizon_frame)
+        
+
+def process_event(event,site_altitude,telescopes,subarray,stereo):
+
+    calib = CameraCalibrator(subarray)
+
+    # Skip file if it's not at the given altitude
+
+    if site_altitude != None:
+        if event.mcheader.prod_site_alt.value != site_altitude:
+            raise ValueError
+
+    # Exit if a telescope ID has been given that doesn't exist in the array
+
+    if telescopes != None:
+        for i in telescopes:
+            if (i not in subarray.tel_ids):
+                sys.exit('Error: tel_id given that is not in array')
+
+    global hillas_containers, telescope_pointings
+    
+    hillas_containers = {}
+    telescope_pointings = {}
+    
+    global horizon_frame
+    
     horizon_frame = AltAz()
     reco = HillasReconstructor()
-
+    
     # Calibrate the event
+    
     calib(event)
-
-    # Container to count what telescopes types were triggered in this event
+    
+    # Setting up a container to count what type of telescopes were triggered in this event
+    
+    global event_tels
     event_tels = []
 
-    for tel_id, dl1 in event.dl1.tel.items():
+    for tel_id, dl1 in event.dl1.tel.items():        
+        process_telescope(tel_id,dl1,event,telescopes,subarray,stereo)
 
-        # If specific telescopes were specified, skip those that weren't
-        if telescopes is not None:
-            if (tel_id not in telescopes):
-                continue
-
-        tel = subarray.tels[tel_id]
-
-        # Process the telescope event
-        tel_type, tel_data, hillas_c = process_telescope(tel, dl1, stereo)
-
-        # Add the telescope event data if it wasn't skipped
-        if tel_type is not None:
-
-            # Calculate mc impact distance
-            x1 = event.mc.core_x.value
-            y1 = event.mc.core_y.value
-            x2 = subarray.positions[tel_id][0].value
-            y2 = subarray.positions[tel_id][1].value
-
-            v = [x2 - x1, y2 - y1]
-            mc_impact_distance = np.linalg.norm(v)
-
-            # Adding a few extras to the telescope event data
-            tel_data.update({
-                'array_event_id': event.index.event_id,
-                'run_id': event.index.obs_id,
-                'telescope_id': tel_id,
-                'telescope_event_id': tel_id,
-                'mc_impact_distance': mc_impact_distance})
-
-            # Update telescope events table
-            telescope_events_data.append(tel_data)
-            event_tels.append(tel_type)
-
-            # Add data to the tables used for geometric reconstruction
-            if stereo:
-                hillas_containers[tel_id] = hillas_c
-
-                telescope_pointings[tel_id] = SkyCoord(
-                    alt=event.mc.tel[tel_id].altitude_raw * u.rad,
-                    az=event.mc.tel[tel_id].azimuth_raw * u.rad,
-                    frame=horizon_frame)
-
-    # Skip event if no telescopes were processed
     if len(event_tels) == 0:
-        return telescope_events_data, None
+        return
 
-    arr_data = {}
+    dict_temp = {}
 
     if stereo and len(event_tels) > 1:
         array_pointing = SkyCoord(
-            az=event.mcheader.run_array_direction[0],
-            alt=event.mcheader.run_array_direction[1],
-            frame=horizon_frame)
+        az=event.mcheader.run_array_direction[0],
+        alt=event.mcheader.run_array_direction[1],
+        frame=horizon_frame)
 
-        # Do geometric direction reconstruction
         reconst = reco.predict(
-            hillas_containers,
-            subarray,
-            array_pointing,
-            telescope_pointings)
+            hillas_containers, subarray, array_pointing, telescope_pointings)
 
-        # Grab the extra stereo info for array_events
-        arr_data.update({
+        # Grabbing the extra stereo info for array_events
+
+        dict_temp.update({
             'alt': reconst.alt.value,
             'alt_uncert': reconst.alt_uncert.value,
             'average_intensity': reconst.average_intensity,
@@ -219,9 +224,9 @@ def process_event(
 
     if stereo and len(event_tels) == 1:
 
-        # If only one telescope is triggered in a stereo array, replace
-        # stereo features with NaN
-        arr_data.update({
+        # If only one telescope is triggered in a stereo array, replace all stereo features with NaN
+
+        dict_temp.update({
             'alt': np.nan,
             'alt_uncert': np.nan,
             'average_intensity': np.nan,
@@ -236,8 +241,9 @@ def process_event(
             'is_valid': np.nan,
             'stereo_flag': False})
 
-    # Grab info for array event data
-    arr_data.update({
+    # Grabbing the general extra info for array_events
+
+    dict_temp.update({
         'array_event_id': event.index.event_id,
         'run_id': event.index.obs_id,
         'azimuth_raw': event.mc.tel[tel_id].azimuth_raw,
@@ -247,7 +253,7 @@ def process_event(
         'num_triggered_lst': event_tels.count('LST'),
         'num_triggered_mst': event_tels.count('MST'),
         'num_triggered_sst': event_tels.count('SST'),
-
+        
         'energy': event.mc.energy.value,
         'alt': event.mc.alt.value,
         'az': event.mc.az.value,
@@ -256,87 +262,41 @@ def process_event(
         'h_first_int': event.mc.h_first_int.value,
         'x_max': event.mc.x_max.value,
         'shower_primary_id': event.mc.shower_primary_id})
+    
+    global array_extras    
+    array_extras.append(dict_temp)
 
-    return telescope_events_data, arr_data
+def process_file(filename,max_events,site_altitude,telescopes,stereo):
 
-
-def process_file(
-        filename,
-        max_events,
-        site_altitude,
-        telescopes,
-        stereo,
-        telescope_events_data,
-        array_events_data):
-
-    # Read source file
     try:
-        source = event_source(
-            filename,
-            max_events=max_events,
-            back_seekable=True)
-    except BaseException:
-        print("Error: file " + filename + " could not be read", "\n")
-        return telescope_events_data, array_events_data, None
-
-    subarray = source.subarray
-    calib = CameraCalibrator(subarray)
-
-    # Exit if a telescope ID has been given that doesn't exist in the array
-    if telescopes is not None:
-        for i in telescopes:
-            if (i not in subarray.tel_ids):
-                sys.exit('Error: tel_id given that is not in array')
-
-    tested_altitude = False
-    appended_anything = False
+        source = event_source(filename, max_events=max_events, back_seekable=True)
+    except:
+        print("Error: file " + filename + " could not be read","\n")
+        return
 
     try:
         for event in source:
-            if not tested_altitude:
-                # Skip file if it's not at the given altitude
-                tested_altitude = True
-                if site_altitude is not None:
-                    if event.mcheader.prod_site_alt.value != site_altitude:
-                        raise ValueError
+            try:
+                process_event(event,site_altitude,telescopes,source.subarray,stereo)
+            except ValueError:
+                pass     
+    except:
+        print("Error: Something unanticipated went wrong with processing an event in file ",filename)
+        print(traceback.format_exc(),"\n")
+        return
+    
+    if site_altitude != None:
+        if event.mcheader.prod_site_alt.value != site_altitude:
+            return
 
-            # Process event
-            telescope_events_data, arr_data = process_event(
-                event,
-                telescopes,
-                subarray,
-                stereo,
-                telescope_events_data,
-                calib)
+    # Grabbing all the info for runs
+    try:
+        test = event.mcheader.atmosphere
+    except:
+        print("For some reason it won't event in file",filename)
+        return
 
-            if arr_data is not None:
-                array_events_data.append(arr_data)
-                appended_anything = True
-
-    # Skip file if it's at a different altitude than specified
-    except ValueError:
-        head, tail = os.path.split(filename)
-        print(
-            tail, "sims are not at an altitude of", str(site_altitude) + "m")
-        return telescope_events_data, array_events_data, None
-
-    # Skip file if it throws an unanticipated error on its own
-    except BaseException:
-        print(
-            "Error: Something unanticipated went wrong\
-            with processing an event in file ",
-            filename)
-        print(traceback.format_exc(), "\n")
-        return telescope_events_data, array_events_data, None
-
-    if not appended_anything:
-        head, tail = os.path.split(filename)
-        print(
-            tail, "did not have any events output (maybe too low-energy?)")
-        return telescope_events_data, array_events_data, None
-
-    # Grab info for run data
-    run_data = {
+    dict_temp = {
         'atmosphere': event.mcheader.atmosphere,
         'core_pos_mode': event.mcheader.core_pos_mode,
         'corsika_bunchsize': event.mcheader.corsika_bunchsize,
@@ -376,68 +336,56 @@ def process_file(
         'shower_reuse': event.mcheader.shower_reuse,
         'simtel_version': event.mcheader.simtel_version,
         'spectral_index': event.mcheader.spectral_index,
-    }
+        }
+    global runs_all
+    runs_all.append(dict_temp)
 
-    return telescope_events_data, array_events_data, run_data
+def process_type(files,max_files,max_events,site_altitude,telescopes,chop):
 
-
-def process_type(
-        files,
-        max_files,
-        max_events,
-        site_altitude,
-        telescopes,
-        chop):
-
-    subarray = event_source(files[0], max_events=1).subarray
+    subarray = event_source(files[0], max_events=1).subarray         
     positions = subarray.positions
     
     stereo = False
     
-    # Flag array as stereo if need be
-    if telescopes is not None and len(telescopes) > 1:
+    if telescopes != None and len(telescopes) > 1:
         stereo = True
     else:
         stereo = subarray.num_tels > 1
-
-    telescope_events_data = []
-    array_events_data = []
+    
+    global telescope_extras, array_extras, runs_all
+    
+    telescope_extras = []
+    array_extras = []
     runs_all = []
-
+    
     # Paring down to the relevant files if "chop" is used
-    if chop is not None:
+    
+    if chop != None:
         first_file = choppoints[0] - 1
         after_last_file = choppoints[1]
         files = files[first_file:after_last_file]
-
-    # Define how many files to process
+    
     files_available = len(files)
     files_to_process = files_available
     
-    if max_files is not None and files_available > max_files:
+    if max_files != None and files_available > max_files:
         files_to_process = max_files
-
+         
     file_no = 0
-
+        
     for filename in files:
-
+    
         file_no += 1
 
         if file_no > files_to_process:
             break
-
-        print("File", file_no, "of", files_to_process,
-              datetime.now().time().strftime("%H:%M:%S"))
-              
-        # Process file
-        telescope_events_data, array_events_data, run_data = process_file(
-            filename, max_events, site_altitude, telescopes, stereo, telescope_events_data, array_events_data)
+            
+        print("File",file_no,"of",files_to_process,datetime.now().time().strftime("%H:%M:%S"))
         
-        # Append run data if something was processed
-        if run_data is not None:
-            runs_all.append(run_data)
-
-    if len(telescope_events_data) == 0:
-        return None, None, None, None, None
-
-    return telescope_events_data, array_events_data, runs_all, stereo, positions
+        process_file(filename,max_events,site_altitude,telescopes,stereo)
+    
+    empty = False
+    if len(telescope_extras) == 0:
+        empty = True
+        
+    return empty, telescope_extras, array_extras, runs_all, stereo, positions
