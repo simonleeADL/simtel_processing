@@ -155,12 +155,13 @@ def validate(
             return "Error: Invalid chop (should be two integers separated by commas,\
              indicating nth and mth files to process, plus an optional third ID no.)"
         if len(choppoints) < 2:
-            return "Error: Not enough chop points!"
+            return "Error: Not enough chop points"
         if len(choppoints) > 3:
-            return "Error: Too many chop points!"
-        if choppoints[0] < 1 or choppoints[1] > len(
-                glob.glob(input_path + typename + '/*.simtel.gz')):
-            return "Error: Chop out of file range!"
+            return "Error: Too many chop points"
+        for typename in types:
+            if choppoints[0] < 1 or choppoints[1] > len(
+                    glob.glob(input_path + typename + '/*.simtel.gz')):
+                return "Error: Chop out of file range for " + typename
 
     try:
         site_location = [float(i) for i in location.split(',')]
