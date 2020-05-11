@@ -1,7 +1,7 @@
 from ctapipe.io import event_source
 import glob
 import writer
-from utilities import obtain_cleaning_mask, process_telescope, process_event, process_file, process_type
+from utilities import process_type
 
 
 def process(

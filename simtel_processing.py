@@ -6,7 +6,7 @@ import glob
 
 @click.command()
 @click.option('-l','--location','location', type=str, required=True,
-            help='latitude, longitude, and altitude (metres) of the site in the form lat,lon,alt e.g.: -34.9195,138.6030,52')
+            help='latitude and longitude of the site in the form lat,lon e.g.: -34.9195,138.6030')
 @click.option('-t','--type','source_type', type=click.Choice(['g', 'p', 'd']),
             help='Process only gamma (g), proton (p), or diffuse gammas (d)')
 @click.option('-i','--input','input_path', default='./', type=click.Path(exists=True),
@@ -167,16 +167,14 @@ def validate(
     except BaseException:
         return "Error: Invalid lat/lon/alt input \
         (should be three numbers separated by commas)"
-    if len(site_location) < 3:
+    if len(site_location) < 2:
         return "Error: Not enough location arguments"
-    if len(site_location) > 3:
+    if len(site_location) > 2:
         return "Error: Too many location arguments"
     if not -90 <= site_location[0] <= 90:
         return "Error: Invalid latitude"
     if not -180 <= site_location[1] <= 180:
         return "Error: Invalid longitude"
-    if not -450 <= site_location[2] <= 9000:
-        return "Error: Invalid height (no longer on land)"
 
     return "Valid"
 
