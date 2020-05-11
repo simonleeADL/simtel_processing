@@ -165,8 +165,8 @@ def validate(
     try:
         site_location = [float(i) for i in location.split(',')]
     except BaseException:
-        return "Error: Invalid lat/lon/alt input \
-        (should be three numbers separated by commas)"
+        return "Error: Invalid lat/lon input \
+        (should be two numbers separated by commas)"
     if len(site_location) < 2:
         return "Error: Not enough location arguments"
     if len(site_location) > 2:
