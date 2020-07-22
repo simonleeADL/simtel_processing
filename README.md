@@ -2,12 +2,12 @@
 Code used to process CTA telescope simulations made with sim-telarray (.simtel.gz files) in to .hdf5 files with Hillas parameterization etc.
 
 ## Install
-```git clone github.com/simonleeADL/simtel_processing/```
+```git clone https://github.com/simonleeADL/simtel_processing```
 
 ## Dependencies
-[ctapipe](github.com/cta-observatory/ctapipe)
+[ctapipe](https://github.com/cta-observatory/ctapipe)
 
-[pyfact](github.com/fact-project/pyfact) for HDF5 writing
+[pyfact](https://github.com/fact-project/pyfact) for HDF5 writing
 
 All other dependencies are part of the ctapipe environment
 
