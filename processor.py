@@ -13,7 +13,7 @@ def process(
         types,
         telescopes,
         site_location,
-        chop,
+        choppoints,
         id_no):
 
     for typename in types:
@@ -21,11 +21,11 @@ def process(
         print("Processing", typename)
         
         # Get a list of the files for this source type
-        files = glob.glob(input_path + typename + '/*.simtel.gz')
+        files = glob.glob(input_path + typename + '/*.simtel.zst')
         
         # Process the files
         telescope_events_data, array_events_data, runs_all, stereo, positions = process_type(
-            files, max_files, max_events, site_altitude, telescopes, chop)
+            files, max_files, max_events, site_altitude, telescopes, choppoints)
         
         # Skip writing if nothing was processed
         if telescope_events_data is None:

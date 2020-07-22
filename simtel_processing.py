@@ -1,3 +1,4 @@
+print("Importing...",flush=True)
 import click
 import sys
 import processor
@@ -10,7 +11,7 @@ import glob
 @click.option('-t','--type','source_type', type=click.Choice(['g', 'p', 'd']),
             help='Process only gamma (g), proton (p), or diffuse gammas (d)')
 @click.option('-i','--input','input_path', default='./', type=click.Path(exists=True),
-            help='Input directory, must include "gamma", "proton", and "gamma-diffuse" folders full of simtel.gz files. Defaults to current folder.')
+            help='Input directory, must include "gamma", "proton", and "gamma-diffuse" folders full of simtel.zst files. Defaults to current folder.')
 @click.option('-o', '--output','output_path', type=click.Path(),
             help='Output path, default will create Data in input path')
 @click.option('--max_files', type=int,
@@ -35,6 +36,8 @@ def main(
         location,
         chop):
     
+
+    print("Checking inputs...")
     # Process click inputs as useable parameters
     input_path, output_path, types, site_location, choppoints, id_no = process_inputs(
         input_path, output_path, source_type, location, chop)
@@ -55,6 +58,8 @@ def main(
     if input_validity != "Valid":
         sys.exit(input_validity)
     
+    print("Everything's good, let's get started...")
+
     # Process the simulations
     processor.process(
         input_path,
@@ -65,7 +70,7 @@ def main(
         types,
         telescopes,
         site_location,
-        chop,
+        choppoints,
         id_no)
         
     print("Finished")
@@ -84,7 +89,11 @@ def process_inputs(input_path, output_path, source_type, location, chop):
         output_path = output_path + '/'
 
     if not os.path.exists(output_path):
-        os.mkdir(output_path)
+        from time import sleep
+        from random import random
+        sleep(1 + random()*5)
+        if not os.path.exists(output_path):
+            os.mkdir(output_path)
     
     # Make a list of the input types
     if source_type is None:
@@ -160,7 +169,7 @@ def validate(
             return "Error: Too many chop points"
         for typename in types:
             if choppoints[0] < 1 or choppoints[1] > len(
-                    glob.glob(input_path + typename + '/*.simtel.gz')):
+                    glob.glob(input_path + typename + '/*.simtel.zst')):
                 return "Error: Chop out of file range for " + typename
 
     try:

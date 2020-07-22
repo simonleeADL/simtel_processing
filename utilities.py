@@ -14,11 +14,23 @@ import traceback
 import os
 
 
-def obtain_cleaning_mask(geom, image, time):
+def obtain_cleaning_mask(geom, image, time, camera_name):
+	
+# Cleaning levels taken from github.com/tudo-astroparticlephysics/cta_preprocessing
+
+    cleaning_level = {
+        'ASTRICam': (5, 7),  # (5, 10)?
+        'FlashCam': (12, 15),
+        'LSTCam': (3.5, 7.5),
+        'NectarCam': (3, 5.5),
+        'FlashCam': (10, 5),  # there is some scaling missing?
+        'DigiCam': (2, 4.5),
+        'CHEC': (10, 5),
+        'SCTCam': (1.5, 3)
+    }
 
     # Settings
-    picture_thresh = 10
-    boundary_thresh = 5
+    picture_thresh, boundary_thresh = cleaning_level[camera_name]
     min_number_picture_neighbors = 3
     time_limit = 5
     min_number_neighbors = 2
@@ -55,11 +67,18 @@ def obtain_cleaning_mask(geom, image, time):
 def process_telescope(tel, dl1, stereo):
 
     geom = tel.camera.geometry
-    image = dl1.image / 0.15552960672840146
-    peak_time = dl1.peak_time
+    camera_name = tel.camera.camera_name
+    
+    # This is unfinished because I don't know what other
+    # telescopes use to convert to photoelectrons
+    pe_conversion_factor = 1
+    if camera_name == 'CHEC':
+        pe_conversion_factor = 0.15552960672840146
+    image = dl1.image / pe_conversion_factor
 
+    peak_time = dl1.peak_time
     # Cleaning using CHEC method
-    clean = obtain_cleaning_mask(geom, image, peak_time)
+    clean = obtain_cleaning_mask(geom, image, peak_time, camera_name)
 
     # Skipping inadequate events
     if clean.sum() == 0:
@@ -67,13 +86,11 @@ def process_telescope(tel, dl1, stereo):
 
     if stereo and clean.sum() < 5:
         return None, None, None
-
     # Get hillas parameters
     hillas_c = hillas_parameters(geom[clean], image[clean])
 
     if hillas_c.width == 0 or np.isnan(hillas_c.width.value):
         return None, None, None
-
     # Get leakage and islands
     leakage_c = leakage(geom, image, clean)
     n_islands, island_ids = number_of_islands(geom, clean)
@@ -130,25 +147,23 @@ def process_event(
 
     horizon_frame = AltAz()
     reco = HillasReconstructor()
-
     # Calibrate the event
     calib(event)
 
     # Container to count what telescopes types were triggered in this event
     event_tels = []
-
     for tel_id, dl1 in event.dl1.tel.items():
 
         # If specific telescopes were specified, skip those that weren't
         if telescopes is not None:
             if (tel_id not in telescopes):
+                print("There's a telescope that wasn't specified")
                 continue
 
         tel = subarray.tels[tel_id]
 
         # Process the telescope event
         tel_type, tel_data, hillas_c = process_telescope(tel, dl1, stereo)
-
         # Add the telescope event data if it wasn't skipped
         if tel_type is not None:
 
@@ -268,17 +283,17 @@ def process_file(
         stereo,
         telescope_events_data,
         array_events_data):
-
     # Read source file
     try:
         source = event_source(
             filename,
             max_events=max_events,
-            back_seekable=True)
+            #back_seekable=True
+            )
     except BaseException:
         print("Error: file " + filename + " could not be read", "\n")
+        print(traceback.format_exc(), "\n")
         return telescope_events_data, array_events_data, None
-
     subarray = source.subarray
     calib = CameraCalibrator(subarray)
 
@@ -387,7 +402,7 @@ def process_type(
         max_events,
         site_altitude,
         telescopes,
-        chop):
+        choppoints):
 
     subarray = event_source(files[0], max_events=1).subarray
     positions = subarray.positions
@@ -405,7 +420,7 @@ def process_type(
     runs_all = []
 
     # Paring down to the relevant files if "chop" is used
-    if chop is not None:
+    if choppoints is not None:
         first_file = choppoints[0] - 1
         after_last_file = choppoints[1]
         files = files[first_file:after_last_file]
@@ -427,7 +442,7 @@ def process_type(
             break
 
         print("File", file_no, "of", files_to_process,
-              datetime.now().time().strftime("%H:%M:%S"))
+              datetime.now().time().strftime("%H:%M:%S"),flush=True)
               
         # Process file
         telescope_events_data, array_events_data, run_data = process_file(
