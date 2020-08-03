@@ -39,37 +39,6 @@ def add_tel_location(telescope_events, site_location, positions):
 
     return telescope_events
 
-# Add the impact distance of showers relative to each telescope
-def add_impact_distance(telescope_events, array_events, positions):
-
-    impact_distance_list = []
-
-    for i in range(len(telescope_events.index)):
-        impact_distance = np.nan
-
-        tel_id = telescope_events['telescope_event_id'][i]
-        tel_arr_id = telescope_events['array_event_id'][i]
-        arr_arr_id = array_events['array_event_id']
-        arr_index = np.where(arr_arr_id == tel_arr_id)[0][0]
-
-        if not np.isnan(array_events['mc_core_x'][arr_index]):
-            x1 = array_events['mc_core_x'][arr_index]
-            y1 = array_events['mc_core_y'][arr_index]
-            x2 = positions[tel_id][0].value
-            y2 = positions[tel_id][1].value
-
-            v = [x2 - x1, y2 - y1]
-            impact_distance = np.linalg.norm(v)
-
-        dict_temp = {'impact_distance': impact_distance}
-        impact_distance_list.append(dict_temp)
-
-    telescope_events = telescope_events.join(
-        pd.DataFrame(impact_distance_list))
-
-    return telescope_events
-
-
 def write(
         typename,
         output_path,
@@ -86,25 +55,10 @@ def write(
     telescope_events = pd.DataFrame(telescope_events_data)
     array_events = pd.DataFrame(array_events_data)
     runs = pd.DataFrame(runs_all)
-
-    # Rename monte carlo parameters
-    array_events.rename(columns={"alt": "true_source_alt",
-                                 "az": "true_source_az",
-                                 "core_x": "mc_core_x",
-                                 "core_y": "mc_core_y",
-                                 "energy": "mc_energy",
-                                 "h_first_int": "mc_h_first_int",
-                                 "shower_primary_id": "mc_shower_primary_id",
-                                 "x_max": "mc_x_max", }, inplace=True)
-
+    
     # Calculate and add telescope location to telescope_events
     telescope_events = add_tel_location(
         telescope_events, site_location, positions)
-
-    # Calculate and add impact distance to telescope_events
-    if stereo:
-        telescope_events = add_impact_distance(
-            telescope_events, array_events, positions)
 
     if typename == 'gamma-diffuse':
         output_file = output_path + 'gammas-diffuse' + str(id_no) + '.hdf5'

@@ -11,7 +11,7 @@ import glob
 @click.option('-t','--type','source_type', type=click.Choice(['g', 'p', 'd']),
             help='Process only gamma (g), proton (p), or diffuse gammas (d)')
 @click.option('-i','--input','input_path', default='./', type=click.Path(exists=True),
-            help='Input directory, must include "gamma", "proton", and "gamma-diffuse" folders full of simtel.zst files. Defaults to current folder.')
+            help='Input directory, must include "gamma", "proton", and "gamma-diffuse" folders full of simtel.gz or simtel.zst files. Defaults to current folder.')
 @click.option('-o', '--output','output_path', type=click.Path(),
             help='Output path, default will create Data in input path')
 @click.option('--max_files', type=int,
@@ -169,7 +169,8 @@ def validate(
             return "Error: Too many chop points"
         for typename in types:
             if choppoints[0] < 1 or choppoints[1] > len(
-                    glob.glob(input_path + typename + '/*.simtel.zst')):
+                    glob.glob(input_path + typename + '/*.simtel.zst') +
+                    glob.glob(input_path + typename + '/*.simtel.gz')):
                 return "Error: Chop out of file range for " + typename
 
     try:

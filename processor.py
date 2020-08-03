@@ -22,6 +22,11 @@ def process(
         
         # Get a list of the files for this source type
         files = glob.glob(input_path + typename + '/*.simtel.zst')
+        files = files + glob.glob(input_path + typename + '/*.simtel.gz')
+
+        if len(files)==0:
+            print("No ",typename," files found")
+            continue
         
         # Process the files
         telescope_events_data, array_events_data, runs_all, stereo, positions = process_type(
