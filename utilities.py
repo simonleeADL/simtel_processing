@@ -25,7 +25,7 @@ def obtain_cleaning_mask(geom, image, time, camera_name):
         'NectarCam': (3, 5.5),
         'FlashCam': (10, 5),  # there is some scaling missing?
         'DigiCam': (2, 4.5),
-        'CHEC': (10.0 * 0.15552960672840146, 5.0 * 0.15552960672840146),
+        'CHEC': (10, 5),
         'SCTCam': (1.5, 3)
     }
 
