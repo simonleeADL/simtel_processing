@@ -7,11 +7,12 @@ from ctapipe.calib import CameraCalibrator
 from ctapipe.image.cleaning import apply_time_delta_cleaning
 from ctapipe.image import hillas_parameters, leakage, number_of_islands, timing_parameters
 from ctapipe.reco import HillasReconstructor
+from ctapipe.image.extractor import NeighborPeakWindowSum
 from datetime import datetime
 import glob
 import traceback
 import os
-
+import sys
 
 def obtain_cleaning_mask(geom, image, time, camera_name):
 	
@@ -24,7 +25,7 @@ def obtain_cleaning_mask(geom, image, time, camera_name):
         'NectarCam': (3, 5.5),
         'FlashCam': (10, 5),  # there is some scaling missing?
         'DigiCam': (2, 4.5),
-        'CHEC': (10, 5),
+        'CHEC': (10.0 * 0.15552960672840146, 5.0 * 0.15552960672840146),
         'SCTCam': (1.5, 3)
     }
 
@@ -66,16 +67,10 @@ def obtain_cleaning_mask(geom, image, time, camera_name):
 def process_telescope(tel, dl1, stereo):
 
     geom = tel.camera.geometry
-    camera_name = tel.camera.camera_name
-    
-    # This is unfinished because I don't know what other
-    # telescopes use to convert to photoelectrons
-    pe_conversion_factor = 1
-    if camera_name == 'CHEC':
-        pe_conversion_factor = 0.15552960672840146
-    image = dl1.image / pe_conversion_factor
-
+    camera_name = tel.camera.camera_name 
+    image = dl1.image
     peak_time = dl1.peak_time
+
     # Cleaning using CHEC method
     clean = obtain_cleaning_mask(geom, image, peak_time, camera_name)
 
@@ -153,13 +148,12 @@ def process_event(
     # Container to count what telescopes types were triggered in this event
     event_tels = []
     tel_data = []
-    
+
     for tel_id, dl1 in event.dl1.tel.items():
 
         # If specific telescopes were specified, skip those that weren't
         if telescopes is not None:
             if (tel_id not in telescopes):
-                print("There's a telescope that wasn't specified")
                 continue
 
         tel = subarray.tels[tel_id]
@@ -314,11 +308,24 @@ def process_file(
 
     # Exit if a telescope ID has been given that doesn't exist in the array
     if telescopes is not None:
+        telescopes = [int(i) for i in telescopes.split(',')]
         for i in telescopes:
             if (i not in subarray.tel_ids):
-                sys.exit('Error: tel_id given that is not in array')
+                sys.exit('Error: tel_id ' + str(i) + ' is not in array ' + str(subarray.tel_ids))
 
-    calib = CameraCalibrator(subarray)
+    camera_name = source.subarray.tel[1].camera.camera_name
+
+    if camera_name == 'FlashCam':
+        width = 23
+        shift = 12
+    elif camera_name == 'CHEC':
+        width = 4
+        shift = 1
+    else:
+        sys.exit('Error: ' + camera_name + " camera not supported")
+    
+    image_extractor = NeighborPeakWindowSum(subarray=subarray, window_width=width, window_shift=shift)
+    calib = CameraCalibrator(subarray=source.subarray, image_extractor=image_extractor)
     
     tested_altitude = False
 

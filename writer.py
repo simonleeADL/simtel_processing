@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 from fact.io import to_h5py
 import os
+from datetime import datetime
 
 # Add locations of each telescope based on given lat/long
 def add_tel_location(telescope_events, site_location, positions):
@@ -50,7 +51,7 @@ def write(
         stereo,
         id_no):
 
-    print('Writing ' + typename + " data...")
+    print('Writing ' + typename + " data...",datetime.now().time().strftime("%H:%M:%S"))
 
     telescope_events = pd.DataFrame(telescope_events_data)
     array_events = pd.DataFrame(array_events_data)
