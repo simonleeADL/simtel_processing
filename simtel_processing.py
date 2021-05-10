@@ -24,6 +24,8 @@ import glob
             help='Only process runs of this altitude (useful when there are multiple runs mixed up)')
 @click.option('--chop','chop', type=str,
             help='Process only the nth through mth files (starting at 1) with optional output ID. Can only be used when processing specific type (g/p/d) and not with max_files. Formatted with commas between first and last file no., plus an optional ID no. as the third, e.g.: 30,49 or 0,19,3')    
+@click.option('-q','--quality_cuts','apply_quality_cuts', is_flag=True,
+            help='Applies quality cuts on telescope events so the geometric reconstruction in only being applied to good quality events')    
 
 def main(
         input_path,
@@ -34,7 +36,8 @@ def main(
         source_type,
         telescopes,
         location,
-        chop):
+        chop,
+        apply_quality_cuts):
     
 
     print("Checking inputs...")
@@ -42,6 +45,21 @@ def main(
     input_path, output_path, types, site_location, choppoints, id_no = process_inputs(
         input_path, output_path, source_type, location, chop)
     
+    print()
+    print('--------------------------')
+    print("Input path:",input_path)
+    print("Output path:",output_path)
+    print("Max files:",max_files)
+    print("Max events:",max_events)
+    print("Specific site altitude:",site_altitude)
+    print("Source type:",source_type)
+    print("Telescopes:",telescopes)
+    print("Location:",location)
+    print("Chop:",chop)
+    print("Apply quality cuts:",apply_quality_cuts)
+    print('--------------------------')
+    print()
+
     # Check the validity of inputs
     input_validity = validate(
         input_path,
@@ -71,7 +89,8 @@ def main(
         telescopes,
         site_location,
         choppoints,
-        id_no)
+        id_no,
+        apply_quality_cuts)
         
     print("Finished")
 

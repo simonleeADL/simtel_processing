@@ -29,6 +29,8 @@ def add_tel_location(telescope_events, site_location, positions):
         tel_alt = site_alt + tel_height
 
         dict_temp = {
+            'tel_x': tel_north,
+            'tel_y': -tel_east,
             'tel_latitude': tel_lat,
             'tel_longitude': tel_lon,
             'tel_altitude': tel_alt}

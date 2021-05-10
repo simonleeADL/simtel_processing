@@ -19,14 +19,8 @@ def obtain_cleaning_mask(geom, image, time, camera_name):
 # Cleaning levels taken from github.com/tudo-astroparticlephysics/cta_preprocessing
 
     cleaning_level = {
-        'ASTRICam': (5, 7),  # (5, 10)?
-        'FlashCam': (12, 15),
-        'LSTCam': (3.5, 7.5),
-        'NectarCam': (3, 5.5),
-        'FlashCam': (10, 5),  # there is some scaling missing?
-        'DigiCam': (2, 4.5),
-        'CHEC': (10, 5),
-        'SCTCam': (1.5, 3)
+        'FlashCam': (10, 5),
+        'CHEC': (4, 2),
     }
 
     # Settings
@@ -133,7 +127,8 @@ def process_event(
         telescopes,
         subarray,
         stereo,
-        calib):
+        calib,
+        apply_quality_cuts):
     
     if stereo:
         hillas_containers = {}
@@ -160,9 +155,13 @@ def process_event(
 
         # Process the telescope event
         tel_type, tel_data_dict, hillas_c = process_telescope(tel, dl1, stereo)
-        
+
         # Add the telescope event data if it wasn't skipped
         if tel_type is not None:
+
+            if apply_quality_cuts:
+                if tel_data_dict['intensity'] < 60 or tel_data_dict['nislands'] > 3 or tel_data_dict['n_survived_pixels'] < 6 or tel_data_dict['intensity_width_1'] > 0.1:
+                    continue
 
             # Calculate mc impact distance
             x1 = event.mc.core_x.value
@@ -172,6 +171,7 @@ def process_event(
 
             v = [x2 - x1, y2 - y1]
             mc_impact_distance = np.linalg.norm(v)
+
 
             # Adding a few extras to the telescope event data
             tel_data_dict.update({
@@ -228,11 +228,18 @@ def process_event(
             tel_data[i]['impact_distance'] = impact_distance
         
         # Grab the extra stereo info for array_events
+
+        reconst_az = reconst.az.value
+        if reconst_az < -np.pi:
+            reconst_az += 2*np.pi
+        if reconst_az > np.pi:
+            reconst_az -= 2*np.pi
+        
         arr_data.update({
             'alt': reconst.alt.value,
             'alt_uncert': reconst.alt_uncert.value,
             'average_intensity': reconst.average_intensity,
-            'az': reconst.az.value,
+            'az': reconst_az,
             'az_uncert': reconst.az_uncert,
             'core_uncert': reconst.core_uncert,
             'core_x': reconst.core_x.value,
@@ -290,7 +297,8 @@ def process_file(
         max_events,
         site_altitude,
         telescopes,
-        stereo):
+        stereo,
+        apply_quality_cuts):
     
     # Read source file
     try:
@@ -315,10 +323,10 @@ def process_file(
 
     camera_name = source.subarray.tel[1].camera.camera_name
 
-    if camera_name == 'FlashCam':
+    if camera_name == 'CHEC':
         width = 23
         shift = 12
-    elif camera_name == 'CHEC':
+    elif camera_name == 'FlashCam':
         width = 4
         shift = 1
     else:
@@ -347,7 +355,8 @@ def process_file(
                 telescopes,
                 subarray,
                 stereo,
-                calib)
+                calib,
+                apply_quality_cuts)
 
             if tel_data is not None:
                 file_tel_data += tel_data
@@ -426,7 +435,8 @@ def process_type(
         max_events,
         site_altitude,
         telescopes,
-        choppoints):
+        choppoints,
+        apply_quality_cuts=False):
 
     subarray = event_source(files[0], max_events=1).subarray
     positions = subarray.positions
@@ -470,7 +480,7 @@ def process_type(
               
         # Process file
         file_tel_data, file_arr_data, run_data = process_file(
-            filename, max_events, site_altitude, telescopes, stereo)
+            filename, max_events, site_altitude, telescopes, stereo, apply_quality_cuts)
         
         # Append run data if something was processed
         if run_data is not None:
