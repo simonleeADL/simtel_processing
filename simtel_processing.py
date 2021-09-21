@@ -24,8 +24,8 @@ import glob
             help='Only process runs of this altitude (useful when there are multiple runs mixed up)')
 @click.option('--chop','chop', type=str,
             help='Process only the nth through mth files (starting at 1) with optional output ID. Can only be used when processing specific type (g/p/d) and not with max_files. Formatted with commas between first and last file no., plus an optional ID no. as the third, e.g.: 30,49 or 0,19,3')    
-@click.option('-q','--quality_cuts','apply_quality_cuts', is_flag=True,
-            help='Applies quality cuts on telescope events so the geometric reconstruction in only being applied to good quality events')    
+@click.option('-q','--quality_cuts','quality_cuts', type=str,
+        help='Applies quality cuts on telescope events so the geometric reconstruction in only being applied to good quality events. Formatted as four numbers separated by commas. The cuts are: intensity (cut below), nislands (cut above), n_survived_pixels (cut below), intensity_width_1 (cut above)')
 
 def main(
         input_path,
@@ -37,13 +37,13 @@ def main(
         telescopes,
         location,
         chop,
-        apply_quality_cuts):
+        quality_cuts):
     
 
     print("Checking inputs...")
     # Process click inputs as useable parameters
-    input_path, output_path, types, site_location, choppoints, id_no = process_inputs(
-        input_path, output_path, source_type, location, chop)
+    input_path, output_path, types, site_location, choppoints, id_no, quality_cuts = process_inputs(
+        input_path, output_path, source_type, location, chop, quality_cuts)
     
     print()
     print('--------------------------')
@@ -56,7 +56,7 @@ def main(
     print("Telescopes:",telescopes)
     print("Location:",location)
     print("Chop:",chop)
-    print("Apply quality cuts:",apply_quality_cuts)
+    print("Quality cuts:",quality_cuts)
     print('--------------------------')
     print()
 
@@ -71,7 +71,8 @@ def main(
         telescopes,
         location,
         chop,
-        types)
+        types,
+        quality_cuts)
 
     if input_validity != "Valid":
         sys.exit(input_validity)
@@ -90,12 +91,12 @@ def main(
         site_location,
         choppoints,
         id_no,
-        apply_quality_cuts)
+        quality_cuts)
         
     print("Finished")
 
 
-def process_inputs(input_path, output_path, source_type, location, chop):
+def process_inputs(input_path, output_path, source_type, location, chop, quality_cuts):
 
     # Tidy up input and output paths
     if not input_path.endswith('/'):
@@ -143,7 +144,13 @@ def process_inputs(input_path, output_path, source_type, location, chop):
     except BaseException:
         site_location = None
 
-    return input_path, output_path, types, site_location, choppoints, id_no
+    # Make a list of quality cuts
+    try:
+        quality_cuts = [float(i) for i in quality_cuts.split(',')]
+    except BaseException:
+        quality_cuts = [None,None,None,None]
+
+    return input_path, output_path, types, site_location, choppoints, id_no, quality_cuts
 
 
 def validate(
@@ -156,7 +163,8 @@ def validate(
         telescopes,
         location,
         chop,
-        types):
+        types,
+        quality_cuts):
         
     if source_type is None and chop is not None:
         return "Error: Cannot use 'chop' when processing 'all' types"
@@ -205,6 +213,13 @@ def validate(
         return "Error: Invalid latitude"
     if not -180 <= site_location[1] <= 180:
         return "Error: Invalid longitude"
+
+    if quality_cuts[0] < 0:
+        return "Error: intensity cut should be non-negative"
+    if quality_cuts[1] < 1:
+        return "Error: nislands cut should be at least 1"
+    if quality_cuts[3] <= 0:
+        return "Error: leaking cut should be positive"
 
     return "Valid"
 

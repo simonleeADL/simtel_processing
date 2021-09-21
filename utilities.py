@@ -20,7 +20,7 @@ def obtain_cleaning_mask(geom, image, time, camera_name):
 
     cleaning_level = {
         'FlashCam': (10, 5),
-        'CHEC': (4, 2),
+        'CHEC': (3, 1.5),
     }
 
     # Settings
@@ -128,7 +128,7 @@ def process_event(
         subarray,
         stereo,
         calib,
-        apply_quality_cuts):
+        quality_cuts=[None,None,None,None]):
     
     if stereo:
         hillas_containers = {}
@@ -159,9 +159,18 @@ def process_event(
         # Add the telescope event data if it wasn't skipped
         if tel_type is not None:
 
-            if apply_quality_cuts:
-                if tel_data_dict['intensity'] < 60 or tel_data_dict['nislands'] > 3 or tel_data_dict['n_survived_pixels'] < 6 or tel_data_dict['intensity_width_1'] > 0.1:
-                    continue
+            if quality_cuts != [None,None,None,None]:
+
+                intensity_cut, nislands_cut, n_survived_pixels_cut, intensity_width_1_cut = quality_cuts
+
+                if intensity_cut != None and tel_data_dict['intensity'] <= intensity_cut:
+                        continue
+                if nislands_cut != None and tel_data_dict['nislands'] >= nislands_cut:
+                        continue
+                if n_survived_pixels_cut != None and tel_data_dict['n_survived_pixels'] <= n_survived_pixels_cut:
+                        continue
+                if intensity_width_1_cut != None and tel_data_dict['intensity_width_1'] >= intensity_width_1_cut:
+                        continue
 
             # Calculate mc impact distance
             x1 = event.mc.core_x.value
@@ -298,7 +307,7 @@ def process_file(
         site_altitude,
         telescopes,
         stereo,
-        apply_quality_cuts):
+        quality_cuts=[None,None,None,None]):
     
     # Read source file
     try:
@@ -324,8 +333,8 @@ def process_file(
     camera_name = source.subarray.tel[1].camera.camera_name
 
     if camera_name == 'CHEC':
-        width = 23
-        shift = 12
+        width = 6
+        shift = 3
     elif camera_name == 'FlashCam':
         width = 4
         shift = 1
@@ -356,7 +365,7 @@ def process_file(
                 subarray,
                 stereo,
                 calib,
-                apply_quality_cuts)
+                quality_cuts=quality_cuts)
 
             if tel_data is not None:
                 file_tel_data += tel_data
@@ -436,7 +445,7 @@ def process_type(
         site_altitude,
         telescopes,
         choppoints,
-        apply_quality_cuts=False):
+        quality_cuts=[None,None,None,None]):
 
     subarray = event_source(files[0], max_events=1).subarray
     positions = subarray.positions
@@ -480,7 +489,7 @@ def process_type(
               
         # Process file
         file_tel_data, file_arr_data, run_data = process_file(
-            filename, max_events, site_altitude, telescopes, stereo, apply_quality_cuts)
+            filename, max_events, site_altitude, telescopes, stereo, quality_cuts)
         
         # Append run data if something was processed
         if run_data is not None:

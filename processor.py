@@ -15,7 +15,7 @@ def process(
         site_location,
         choppoints,
         id_no,
-        apply_quality_cuts):
+        quality_cuts):
 
     for typename in types:
 
@@ -31,7 +31,7 @@ def process(
         
         # Process the files
         telescope_events_data, array_events_data, runs_all, stereo, positions = process_type(
-            files, max_files, max_events, site_altitude, telescopes, choppoints, apply_quality_cuts)
+            files, max_files, max_events, site_altitude, telescopes, choppoints, quality_cuts)
         
         # Skip writing if nothing was processed
         if telescope_events_data is None:
